@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "shopiators-merchant-app",
+    "name": "Shopiators Merchant",
     "slug": "shopiators-merchant-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "shopiatorsmerchantapp",
+    "scheme": "shopiators",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon"
@@ -17,7 +17,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.yogeshkhasturi.shopiatorsmerchantapp"
     },
     "web": {
       "output": "static",
@@ -39,6 +40,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "4ee876b6-8f9c-4e77-82f9-c7621b56ed8f"
+      }
     }
   }
 }
