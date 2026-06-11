@@ -14,12 +14,12 @@ export default function GenericWebViewScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0b0f19" />
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       
-      {/* Premium Back Navigation Bar */}
+      {/* Premium Light Back Navigation Bar */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} activeOpacity={0.7} onPress={() => router.back()}>
-          <ArrowLeftIcon size={20} color="#cbd5e1" />
+          <ArrowLeftIcon size={20} color="#1a1a1a" />
         </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>{title}</Text>
         <View style={styles.placeholder} />
@@ -36,7 +36,7 @@ export default function GenericWebViewScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#030712',
+    backgroundColor: '#ffffff',
   },
   header: {
     height: 56,
@@ -45,8 +45,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
-    backgroundColor: '#090d16',
+    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+    backgroundColor: '#ffffff',
   },
   backButton: {
     width: 36,
@@ -54,12 +54,12 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: 'rgba(0, 0, 0, 0.03)',
   },
   title: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#ffffff',
+    color: '#1a1a1a',
     flex: 1,
     textAlign: 'center',
     marginHorizontal: 12,

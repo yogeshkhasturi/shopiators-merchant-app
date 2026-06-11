@@ -1,7 +1,21 @@
 import { create } from 'zustand';
 import { secureStore } from '../services/secure-store';
+import * as Linking from 'expo-linking';
 
 let activeRefreshPromise: Promise<boolean> | null = null;
+const activeExchanges = new Set<string>();
+
+// Helper to log SecureStore reads (adds debug info for each async call)
+const logSecure = async <T>(name: string, fn: () => Promise<T>): Promise<T | null> => {
+  try {
+    const result = await fn();
+    console.log(`[SecureStore] ${name} = ${JSON.stringify(result)}`);
+    return result;
+  } catch (e) {
+    console.error(`[SecureStore] ${name} failed:`, e);
+    return null;
+  }
+};
 
 interface SessionState {
   token: string | null;           // Matches access token
@@ -22,7 +36,7 @@ interface SessionState {
     domain?: string,
     metadata?: any
   ) => Promise<void>;
-  exchangeCodeForToken: (code: string) => Promise<void>;
+  exchangeCodeForToken: (code: string, redirectUri?: string) => Promise<void>;
   refreshSession: () => Promise<boolean>;
   refreshSessionSilent: (rToken: string, activeDomain: string) => Promise<boolean>;
   clearSession: () => Promise<void>;
@@ -39,19 +53,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   isAuthenticated: false,
   isSessionLoading: true,
   pendingPath: null,
+  // New helper to forcibly stop loading (used for debugging)
+  forceStopLoading: () => set({ isSessionLoading: false }),
 
   setPendingPath: (path: string | null) => set({ pendingPath: path }),
 
   initializeSession: async () => {
     try {
-      const [token, refreshToken, expiresAt, merchantSlug, domain, metadata] = await Promise.all([
-        secureStore.getToken(),
-        secureStore.getRefreshToken(),
-        secureStore.getExpiresAt(),
-        secureStore.getMerchantSlug(),
-        secureStore.getDomain(),
-        secureStore.getMetadata(),
-      ]);
+        const [token, refreshToken, expiresAt, merchantSlug, domain, metadata] = await Promise.all([
+          logSecure('token', secureStore.getToken),
+          logSecure('refreshToken', secureStore.getRefreshToken),
+          logSecure('expiresAt', secureStore.getExpiresAt),
+          logSecure('merchantSlug', secureStore.getMerchantSlug),
+          logSecure('domain', secureStore.getDomain),
+          logSecure('metadata', secureStore.getMetadata),
+        ]);
 
       const activeDomain = domain || 'admin.shopiators.com';
 
@@ -65,6 +81,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         // Attempt silent refresh
         const refreshed = await get().refreshSessionSilent(refreshToken, activeDomain);
         if (refreshed) {
+          set({ isSessionLoading: false });
           console.log('[Auth] Silent token refresh succeeded during initialization.');
           return;
         } else {
@@ -118,7 +135,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         merchantSlug,
         domain,
         merchantMetadata: metadata || get().merchantMetadata,
-        isAuthenticated: true,
+        isAuthenticated: !!token,
         isSessionLoading: false,
       });
     } catch (error) {
@@ -126,10 +143,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  exchangeCodeForToken: async (code: string) => {
+  exchangeCodeForToken: async (code: string, redirectUri?: string) => {
+    if (activeExchanges.has(code)) {
+      console.log('[Auth] Code is already being exchanged, ignoring duplicate request:', code);
+      return;
+    }
+    activeExchanges.add(code);
     set({ isSessionLoading: true });
     try {
       console.log('[Auth] Initiating token exchange for authorization code...');
+      const resolvedRedirectUri = redirectUri || 'shopiators://auth/callback';
+      console.log('[Auth] Using redirect_uri for token exchange:', resolvedRedirectUri);
+
       const response = await fetch('https://auth.shopiators.com/oauth/token', {
         method: 'POST',
         headers: {
@@ -140,7 +165,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           grant_type: 'authorization_code',
           code,
           client_id: 'merchant_app',
-          redirect_uri: 'shopiators://auth/callback',
+          redirect_uri: resolvedRedirectUri,
         }),
       });
 
@@ -168,6 +193,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       console.error('[Auth] OAuth Token Exchange Error:', error);
       set({ isSessionLoading: false });
       throw error;
+    } finally {
+      activeExchanges.delete(code);
     }
   },
 

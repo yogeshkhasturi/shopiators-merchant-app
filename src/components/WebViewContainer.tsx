@@ -1,10 +1,13 @@
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import { StyleSheet, View, ActivityIndicator, BackHandler, Platform, RefreshControl, ScrollView, Text, TouchableOpacity } from 'react-native';
+import { BottomTabInset } from '../constants/theme';
+import { StyleSheet, View, ActivityIndicator, BackHandler, Platform, RefreshControl, ScrollView, Text, TouchableOpacity, DeviceEventEmitter } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import { useSessionStore } from '../store/useSessionStore';
 import { AlertCircle, RotateCw, WifiOff } from 'lucide-react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { appBridge } from '../services/app-bridge';
+import { router } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 
 const WifiOffIcon = WifiOff as any;
 const RotateCwIcon = RotateCw as any;
@@ -105,6 +108,120 @@ export default function WebViewContainer({ path }: WebViewContainerProps) {
   useEffect(() => {
     bootstrapWebViewSession();
   }, [domain, token, merchantSlug]);
+  
+  const getTabRouteForWebPath = (webPath: string): string | null => {
+    const cleanPath = webPath.split('?')[0].split('#')[0];
+    if (cleanPath === '/admin/dashboard') {
+      return '/';
+    }
+    if (
+      cleanPath.startsWith('/admin/orders') ||
+      cleanPath.startsWith('/admin/draft_orders') ||
+      cleanPath.startsWith('/admin/checkouts')
+    ) {
+      return '/orders';
+    }
+    if (
+      cleanPath.startsWith('/admin/products') ||
+      cleanPath.startsWith('/admin/collections') ||
+      cleanPath.startsWith('/admin/inventory') ||
+      cleanPath.startsWith('/admin/purchase_orders') ||
+      cleanPath.startsWith('/admin/transfers') ||
+      cleanPath.startsWith('/admin/gift_cards')
+    ) {
+      return '/products';
+    }
+    if (cleanPath.startsWith('/admin/customers') || cleanPath.startsWith('/admin/segments')) {
+      return '/customers';
+    }
+    if (cleanPath.startsWith('/admin/settings')) {
+      return '/profile';
+    }
+    return null;
+  };
+
+  // Scope checker to ensure each WebView only handles paths belonging to its own tab
+  const isPathInScope = (currentTabPath: string, targetPath: string): boolean => {
+    const targetTab = getTabRouteForWebPath(targetPath);
+    const currentTab = getTabRouteForWebPath(currentTabPath);
+    return targetTab !== null && targetTab === currentTab;
+  };
+
+  // Handle cross-tab web path navigation events
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener('navigate-web-path', (webPath: string) => {
+      if (!isPathInScope(path, webPath)) {
+        return; // Skip if this target URL is not in this tab's scope
+      }
+      console.log('[WebView] Navigating scoped tab to path:', webPath);
+      if (webViewRef.current) {
+        const separator = webPath.includes('?') ? '&' : '?';
+        const url = `https://${domain}/${merchantSlug}${webPath}${separator}mobile_app=1`;
+        webViewRef.current.injectJavaScript(`window.location.href = '${url}';`);
+      }
+    });
+    return () => subscription.remove();
+  }, [domain, merchantSlug, path]);
+
+  // Handle opening the website's built-in notification drawer/dropdown programmatically
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener('trigger-web-notification', () => {
+      console.log('[WebView] Native bell pressed. Programmatically triggering web notification bell click event...');
+      if (webViewRef.current) {
+        webViewRef.current.injectJavaScript(`
+          (function() {
+            var bellSelectors = [
+              '[class*="bell"]',
+              '[id*="bell"]',
+              '[class*="notification"]',
+              '[id*="notification"]',
+              'button:has(svg)',
+              'a:has(svg)'
+            ];
+            
+            var bell = null;
+            for (var i = 0; i < bellSelectors.length; i++) {
+              var el = document.querySelector(bellSelectors[i]);
+              if (el) {
+                var html = el.innerHTML.toLowerCase();
+                if (html.includes('bell') || html.includes('notification')) {
+                  bell = el;
+                  break;
+                }
+              }
+            }
+            
+            if (!bell) {
+              var svgs = document.getElementsByTagName('svg');
+              for (var j = 0; j < svgs.length; j++) {
+                var svg = svgs[j];
+                if (svg.innerHTML.toLowerCase().includes('bell') || (svg.className && svg.className.baseVal && svg.className.baseVal.includes('bell'))) {
+                  var curr = svg;
+                  while (curr && curr !== document.body) {
+                    if (curr.tagName === 'BUTTON' || curr.tagName === 'A' || curr.onclick) {
+                      bell = curr;
+                      break;
+                    }
+                    curr = curr.parentElement;
+                  }
+                  if (bell) break;
+                }
+              }
+            }
+            
+            if (bell) {
+              console.log('Successfully triggered click on web notification bell.');
+              bell.click();
+            } else {
+              console.log('Web notification bell not found in DOM.');
+            }
+          })();
+          true;
+        `);
+      }
+    });
+    return () => subscription.remove();
+  }, [domain, merchantSlug]);
 
   // Construct the direct authenticated admin panel route URL
   const targetUrl = useMemo(() => {
@@ -142,7 +259,7 @@ export default function WebViewContainer({ path }: WebViewContainerProps) {
     };
   }, [canGoBack]);
 
-  // JS script to inject for advanced pull-to-refresh coordinate bridge
+  // JS script to inject for advanced pull-to-refresh coordinate bridge and CSS hiding
   const scrollBridgeScript = `
     (function() {
       // Listen to scroll events on web page
@@ -153,6 +270,98 @@ export default function WebViewContainer({ path }: WebViewContainerProps) {
           scrollTop: scrollTop
         }));
       });
+
+      // Inject CSS style to hide header/navbar/footer/sidebar on website to prevent double headers
+      // But KEEP notification drawers/dropdowns visible by overriding them to display: block/flex
+      var style = document.createElement('style');
+      style.innerHTML = 'header, .header, #header, nav, .navbar, .nav, .topbar, #topbar, .site-header, .admin-header, .admin-sidebar, #admin-sidebar, .sidebar, #sidebar, footer, .footer, #footer, .site-footer { display: none !important; } [class*="notification-drawer"], [class*="notification-dropdown"], [class*="notification-panel"], [class*="NotificationDropdown"], [class*="NotificationDrawer"], [class*="in-app-notification"], [class*="notifications"] { display: block !important; visibility: visible !important; opacity: 1 !important; } body { padding-top: 0 !important; margin-top: 0 !important; padding-left: 16px !important; padding-right: 16px !important; box-sizing: border-box !important; background-color: #f6f8fa !important; } #main, .main, #content, .content, main, .wrapper, .main-wrapper, .page-wrapper, .admin-wrapper, .dashboard-wrapper, .app-content, .layout, .layout-content, .container-fluid, .container { margin-left: 0 !important; padding-left: 0 !important; margin-right: 0 !important; padding-right: 0 !important; margin-top: 0 !important; padding-top: 0 !important; width: 100% !important; max-width: 100% !important; } .sticky, [class*="sticky"], [class*="top-["], [class*="top-[81px]"] { top: 0px !important; }';
+      document.head.appendChild(style);
+
+      // Clean up large top padding/margin spacers from layout wrappers to eliminate gaps
+      function cleanTopGaps() {
+        var tagNames = ['div', 'section', 'main', 'article'];
+        for (var t = 0; t < tagNames.length; t++) {
+          var els = document.getElementsByTagName(tagNames[t]);
+          for (var i = 0; i < els.length; i++) {
+            var el = els[i];
+            if (el.tagName === 'BODY' || el.tagName === 'HTML') continue;
+            
+            // 1. Detect and hide empty layout spacer elements at the very top of the page
+            var rect = el.getBoundingClientRect();
+            if (rect.top === 0 && el.offsetHeight >= 60 && el.offsetHeight <= 100 && el.textContent.trim() === '') {
+              el.style.setProperty('display', 'none', 'important');
+              continue;
+            }
+
+            // 2. Clear explicit margin/padding top spacers
+            var styleObj = window.getComputedStyle(el);
+            var pTop = parseInt(styleObj.paddingTop, 10);
+            var mTop = parseInt(styleObj.marginTop, 10);
+            
+            if (pTop >= 40 && pTop <= 150) {
+              el.style.setProperty('padding-top', '0px', 'important');
+            }
+            if (mTop >= 40 && mTop <= 150) {
+              el.style.setProperty('margin-top', '0px', 'important');
+            }
+          }
+        }
+      }
+
+      // Run immediately and periodically for SPA route changes
+      cleanTopGaps();
+      setInterval(cleanTopGaps, 800);
+
+      // Real-time unread notification count badge observer
+      function updateNotificationBadge() {
+        var badge = document.querySelector('[class*="count"], [class*="badge"], .notification-count');
+        if (badge) {
+          var count = parseInt(badge.textContent, 10);
+          if (!isNaN(count)) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'notification_count',
+              count: count
+            }));
+          }
+        }
+      }
+      setInterval(updateNotificationBadge, 3000);
+
+      // Real-time DOM toast notifications observer (MutationObserver)
+      var observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+          mutation.addedNodes.forEach(function(node) {
+            if (node.nodeType === 1) {
+              var isToast = false;
+              var text = node.textContent || '';
+              
+              var className = node.className || '';
+              if (typeof className === 'string') {
+                var lowerClass = className.toLowerCase();
+                if (lowerClass.includes('toast') || lowerClass.includes('notification') || lowerClass.includes('alert')) {
+                  isToast = true;
+                }
+              }
+              
+              var role = node.getAttribute('role');
+              if (role === 'alert' || role === 'status') {
+                isToast = true;
+              }
+              
+              if (isToast && text.trim().length > 0) {
+                var lowerText = text.toLowerCase();
+                if (lowerText.includes('order') || lowerText.includes('new') || lowerText.includes('received') || lowerText.includes('placed')) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'order_toast',
+                    text: text.trim()
+                  }));
+                }
+              }
+            }
+          });
+        });
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
 
       // Also listen to double taps or custom events if needed
       document.body.style.webkitUserSelect = 'none'; // prevent text selections
@@ -173,6 +382,23 @@ export default function WebViewContainer({ path }: WebViewContainerProps) {
           const data = JSON.parse(messageString);
           if (data.type === 'scroll') {
             setIsScrollAtTop(data.scrollTop <= 5);
+          } else if (data.type === 'notification_count') {
+            DeviceEventEmitter.emit('update-notification-count', data.count);
+          } else if (data.type === 'order_toast') {
+            console.log('[Notification] Received order toast from webview:', data.text);
+            Notifications.scheduleNotificationAsync({
+              content: {
+                title: 'New Order Alert',
+                body: data.text,
+                data: { path: '/admin/orders' },
+                sound: true,
+              },
+              trigger: null,
+            }).catch((err) => console.error('Failed to trigger local notification:', err));
+          } else if (data.type === 'debug_gap') {
+            console.log('[DEBUG_GAP] Found pushing element:', data.tag, 'id:', data.id, 'class:', data.className, 'paddingTop:', data.pTop, 'marginTop:', data.mTop, 'top:', data.top);
+          } else if (data.type === 'debug_hierarchy') {
+            console.log('[DEBUG_HIERARCHY] Path to header:', JSON.stringify(data.path, null, 2));
           }
         } catch (err) {}
       });
@@ -197,6 +423,72 @@ export default function WebViewContainer({ path }: WebViewContainerProps) {
         hostname === 'localhost';
 
       if (isWhitelisted) {
+        // Parse the admin path to see if we should trigger a tab switch
+        let adminPath = '';
+        try {
+          const urlObj = new URL(url);
+          adminPath = urlObj.pathname;
+          if (merchantSlug && adminPath.startsWith(`/${merchantSlug}`)) {
+            adminPath = adminPath.substring(merchantSlug.length + 1);
+          }
+          if (urlObj.search) {
+            adminPath += urlObj.search;
+          }
+        } catch (e) {}
+
+        if (adminPath.startsWith('/admin')) {
+          // Skip if it's an authentication or SSO path to allow handshakes to load in-place
+          const isAuthPath = 
+            adminPath.startsWith('/admin/auth') || 
+            adminPath.startsWith('/admin/sso') || 
+            adminPath.startsWith('/admin/oauth') ||
+            adminPath.startsWith('/admin/login');
+
+          // Detect server-side intermediate redirect pattern: /admin?returnUrl=...
+          // This is a normal auth gate redirect — the server will resolve it back to the
+          // target page after validating the session cookie. Must NOT be opened in a new
+          // webview-screen or it creates an auth loop and logs the user out.
+          const isServerRedirectChain = 
+            (adminPath === '/admin' || adminPath.startsWith('/admin?')) &&
+            (url.includes('returnUrl=') || url.includes('redirect=') || url.includes('next='));
+
+          if (!isAuthPath && !isServerRedirectChain) {
+            const tabRoute = getTabRouteForWebPath(adminPath);
+            const currentTabRoute = getTabRouteForWebPath(path);
+
+            const isTabWebView = 
+              path === '/admin/dashboard' || 
+              path === '/admin/orders' || 
+              path === '/admin/products' || 
+              path === '/admin/customers';
+
+            if (tabRoute) {
+              if (tabRoute !== currentTabRoute) {
+                console.log(`[WebView Intercept] Switching tab from ${currentTabRoute} to ${tabRoute} for path: ${adminPath}`);
+                router.push(tabRoute as any);
+                setTimeout(() => {
+                  DeviceEventEmitter.emit('navigate-web-path', adminPath);
+                }, 150);
+                return false;
+              }
+              // Same tab — let the WebView handle it in-place
+              return true;
+            } else if (isTabWebView) {
+              // Unmapped admin route (e.g. /admin/discounts) — open in overlay webview-screen
+              console.log(`[WebView Intercept] Opening unmapped route in webview-screen: ${adminPath}`);
+              let title = 'Admin';
+              if (adminPath.includes('discounts')) title = 'Discounts';
+              else if (adminPath.includes('analytics')) title = 'Analytics';
+              else if (adminPath.includes('marketing')) title = 'Marketing';
+              else if (adminPath.includes('apps')) title = 'Apps';
+              router.push({
+                pathname: '/webview-screen',
+                params: { path: adminPath, title: title },
+              });
+              return false;
+            }
+          }
+        }
         return true;
       }
 
@@ -208,15 +500,37 @@ export default function WebViewContainer({ path }: WebViewContainerProps) {
     }
   };
 
+  const loginRedirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleNavigationStateChange = (navState: WebViewNavigation) => {
     setCanGoBack(navState.canGoBack);
     setIsLoading(navState.loading);
-    
-    // Check if web page redirected or failed auth
-    if (navState.url.includes('/login') || navState.url.includes('/auth/login')) {
-      // Token probably expired or invalid, prompt login clear
-      console.warn('WebView redirected to login screen, clearing stale credentials.');
-      clearSession();
+
+    // Detect if WebView landed on a login/auth page.
+    // IMPORTANT: We use a 2-second debounce timer here because the server often does a
+    // transient redirect through /login as part of the auth-cookie handshake before
+    // immediately redirecting back to the target page. Clearing the session immediately
+    // on seeing /login would incorrectly log the user out during normal operation.
+    const isOnLoginPage = 
+      (navState.url.includes('/login') || navState.url.includes('/auth/login')) &&
+      !navState.loading; // Only act when the page has fully settled
+
+    if (isOnLoginPage) {
+      if (!loginRedirectTimerRef.current) {
+        loginRedirectTimerRef.current = setTimeout(() => {
+          // Re-check the current URL after the delay to confirm it's still on login
+          // (not just a transient redirect)
+          console.warn('[WebView] Session appears expired: still on login page after redirect. Clearing credentials.');
+          clearSession();
+          loginRedirectTimerRef.current = null;
+        }, 2500);
+      }
+    } else {
+      // Navigation moved away from login — cancel any pending logout timer
+      if (loginRedirectTimerRef.current) {
+        clearTimeout(loginRedirectTimerRef.current);
+        loginRedirectTimerRef.current = null;
+      }
     }
   };
 
@@ -258,9 +572,9 @@ export default function WebViewContainer({ path }: WebViewContainerProps) {
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
               enabled={isScrollAtTop}
-              tintColor="#6366f1"
-              colors={['#6366f1']}
-              progressBackgroundColor="#1e293b"
+              tintColor="#008060"
+              colors={['#008060']}
+              progressBackgroundColor="#ffffff"
             />
           }
         >
@@ -277,12 +591,8 @@ export default function WebViewContainer({ path }: WebViewContainerProps) {
               domStorageEnabled={true}
               javaScriptEnabled={true}
               startInLoadingState={true}
-              showsVerticalScrollIndicator={false}
               onError={() => setHasError(true)}
               onHttpError={() => setHasError(true)}
-              // Performance boosts for mid-range android devices
-              androidLayerType="hardware"
-              decelerationRate="normal"
             />
           )}
 
@@ -300,7 +610,7 @@ export default function WebViewContainer({ path }: WebViewContainerProps) {
                 <View style={styles.skeletonRow} />
                 <View style={styles.skeletonRow} />
               </View>
-              <ActivityIndicator color="#6366f1" size="small" style={styles.loaderSpinner} />
+              <ActivityIndicator color="#008060" size="small" style={styles.loaderSpinner} />
             </Animated.View>
           )}
         </ScrollView>
@@ -312,14 +622,16 @@ export default function WebViewContainer({ path }: WebViewContainerProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#030712',
+    backgroundColor: '#f6f8fa',
+    paddingBottom: BottomTabInset,
   },
   scrollWrapper: {
     flex: 1,
+    flexGrow: 1,
   },
   webView: {
     flex: 1,
-    backgroundColor: '#030712',
+    backgroundColor: '#f6f8fa',
   },
   hidden: {
     opacity: 0,
@@ -335,12 +647,12 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#030712',
+    backgroundColor: '#f6f8fa',
     padding: 16,
   },
   skeletonHeader: {
     height: 32,
-    backgroundColor: '#1f2937',
+    backgroundColor: '#e2e8f0',
     borderRadius: 8,
     width: '45%',
     marginBottom: 20,
@@ -352,30 +664,30 @@ const styles = StyleSheet.create({
   },
   skeletonStatCard: {
     height: 90,
-    backgroundColor: '#111827',
+    backgroundColor: '#ffffff',
     borderRadius: 16,
     width: '48%',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.03)',
+    borderColor: '#e2e8f0',
   },
   skeletonChartCard: {
     height: 180,
-    backgroundColor: '#111827',
+    backgroundColor: '#ffffff',
     borderRadius: 20,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.03)',
+    borderColor: '#e2e8f0',
   },
   skeletonListCard: {
-    backgroundColor: '#111827',
+    backgroundColor: '#ffffff',
     borderRadius: 20,
     padding: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.03)',
+    borderColor: '#e2e8f0',
   },
   skeletonRow: {
     height: 16,
-    backgroundColor: '#1f2937',
+    backgroundColor: '#f1f5f9',
     borderRadius: 4,
     marginBottom: 14,
     width: '90%',
@@ -386,7 +698,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 32,
-    backgroundColor: '#030712',
+    backgroundColor: '#f6f8fa',
   },
   errorIcon: {
     marginBottom: 16,
@@ -394,19 +706,19 @@ const styles = StyleSheet.create({
   errorTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#ffffff',
+    color: '#1a1a1a',
     marginBottom: 8,
   },
   errorSubtitle: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#5c5f62',
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 24,
   },
   retryButton: {
     height: 48,
-    backgroundColor: '#6366f1',
+    backgroundColor: '#008060',
     borderRadius: 14,
     flexDirection: 'row',
     justifyContent: 'center',

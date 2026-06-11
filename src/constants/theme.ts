@@ -61,5 +61,10 @@ export const Spacing = {
   six: 64,
 } as const;
 
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
+export const BottomTabInset = Platform.select({ ios: 110, android: 105 }) ?? 0;
 export const MaxContentWidth = 800;
+export const TabBarColors = {
+  background: 'rgba(9,13,22,0.85)',
+  activeTint: '#ffffff',
+  inactiveTint: '#9CA3AF',
+} as const;

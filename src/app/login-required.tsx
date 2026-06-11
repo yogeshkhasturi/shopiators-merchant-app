@@ -11,7 +11,8 @@ import {
   KeyboardAvoidingView, 
   Platform, 
   TouchableWithoutFeedback, 
-  Keyboard 
+  Keyboard,
+  Modal
 } from 'react-native';
 import { useSessionStore } from '../store/useSessionStore';
 import { Smartphone, Laptop, ArrowRight, Sparkles, LogIn, Globe, QrCode } from 'lucide-react-native';
@@ -19,6 +20,8 @@ import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { appBridge } from '../services/app-bridge';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
+import { WebView } from 'react-native-webview';
+import { decodeSessionToken } from '../utils/jwt';
 
 // Pre-warm the secure browser session for seamless load speeds
 WebBrowser.maybeCompleteAuthSession();
@@ -33,10 +36,13 @@ const QrCodeIcon = QrCode as any;
 
 export default function LoginRequiredScreen() {
   const exchangeCodeForToken = useSessionStore((state) => state.exchangeCodeForToken);
+  const setSession = useSessionStore((state) => state.setSession);
   
   const [storeSlug, setStoreSlug] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showWebView, setShowWebView] = useState(false);
+  const [webViewUrl, setWebViewUrl] = useState('');
 
   const handleSSOLogin = async () => {
     setErrorMsg(null);
@@ -60,32 +66,12 @@ export default function LoginRequiredScreen() {
     appBridge.executeHaptic('selection');
 
     try {
-      const authUrl = `https://auth.shopiators.com/login?storeSlug=${slug}&type=admin&client=merchant_app&mobile=1&redirect_uri=shopiators://auth/callback`;
-      const redirectUrl = Linking.createURL('auth/callback');
+      const redirectUrl = 'shopiators://auth/callback';
+      const authUrl = `https://auth.shopiators.com/login?storeSlug=${slug}&type=admin&client=merchant_app&mobile=1&redirect_uri=${encodeURIComponent(redirectUrl)}`;
 
-      console.log(`[SSO] Opening secure AuthSession: ${authUrl} (redirect: ${redirectUrl})`);
-
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
-
-      if (result.type === 'success' && result.url) {
-        const sanitizedUrl = result.url.replace(/code=[^&]+/, 'code=***');
-        console.log('[SSO] AuthSession resolved successfully:', sanitizedUrl);
-        
-        // Parse the code out of the redirect URI
-        const parsed = Linking.parse(result.url);
-        const code = parsed.queryParams?.code as string;
-
-        if (code) {
-          await exchangeCodeForToken(code);
-          appBridge.executeHaptic('success');
-        } else {
-          throw new Error('Authentication succeeded, but no authorization code was returned.');
-        }
-      } else {
-        // Cancelled or dismissed
-        console.log('[SSO] AuthSession dismissed or cancelled by the user.');
-        setIsLoading(false);
-      }
+      console.log(`[SSO] Opening in-app WebView for authentication: ${authUrl}`);
+      setWebViewUrl(authUrl);
+      setShowWebView(true);
     } catch (err: any) {
       console.error('[SSO] Login process encountered an error:', err);
       setErrorMsg(err.message || 'An error occurred during authentication. Please retry.');
@@ -208,6 +194,101 @@ export default function LoginRequiredScreen() {
           </View>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
+
+      {/* SSO Webview Modal */}
+      <Modal
+        visible={showWebView}
+        animationType="slide"
+        onRequestClose={() => {
+          setShowWebView(false);
+          setIsLoading(false);
+        }}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#030712' }}>
+          <View style={{ height: 60, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, borderBottomWidth: 1, borderColor: '#1f2937', backgroundColor: '#0b0f19' }}>
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>SSO Sign In</Text>
+            <TouchableOpacity onPress={() => { setShowWebView(false); setIsLoading(false); }}>
+              <Text style={{ color: '#cbd5e1', fontSize: 14, fontWeight: '600' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+          <WebView
+            source={{ uri: webViewUrl }}
+            userAgent={Platform.select({
+              ios: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 ShopiatorsMerchantApp/1.0',
+              android: 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36 ShopiatorsMerchantApp/1.0',
+            })}
+            onShouldStartLoadWithRequest={(request) => {
+              const url = request.url;
+              console.log('[LoginWebView] Navigating to:', url);
+              if (url.startsWith('shopiators://auth/callback') || url.includes('token=') || url.includes('code=')) {
+                const parsed = Linking.parse(url);
+                const token = parsed.queryParams?.token as string;
+                const code = parsed.queryParams?.code as string;
+
+                if (token) {
+                  console.log('[LoginWebView] Found token directly in callback URL, setting session...');
+                  setShowWebView(false);
+
+                  let expiresAt: number | null = null;
+                  let storeSlugDecoded = storeSlug;
+                  let userObj = null;
+
+                  try {
+                    const decoded = decodeSessionToken(token);
+                    if (decoded) {
+                      if (decoded.exp) {
+                        expiresAt = decoded.exp * 1000;
+                      }
+                      if (decoded.storeSlug) {
+                        storeSlugDecoded = decoded.storeSlug;
+                      }
+                    }
+                  } catch (e) {
+                    console.error('[LoginWebView] Failed to decode token:', e);
+                  }
+
+                  try {
+                    if (parsed.queryParams?.user) {
+                      userObj = JSON.parse(decodeURIComponent(parsed.queryParams.user as string));
+                    }
+                  } catch (e) {}
+
+                  setSession(token, null, expiresAt, storeSlugDecoded, 'admin.shopiators.com', userObj)
+                    .then(() => {
+                      appBridge.executeHaptic('success');
+                    })
+                    .catch((err) => {
+                      console.error('[LoginWebView] Setting session failed:', err);
+                      setErrorMsg(err.message || 'Failed to set session.');
+                      setIsLoading(false);
+                    });
+
+                  return false;
+                }
+
+                if (code) {
+                  console.log('[LoginWebView] Found authorization code, exchanging...');
+                  setShowWebView(false);
+                  exchangeCodeForToken(code, 'shopiators://auth/callback')
+                    .then(() => {
+                      appBridge.executeHaptic('success');
+                    })
+                    .catch((err) => {
+                      console.error('[LoginWebView] Exchange failed:', err);
+                      setErrorMsg(err.message || 'Token exchange failed.');
+                      setIsLoading(false);
+                    });
+                  return false;
+                }
+              }
+              return true;
+            }}
+            domStorageEnabled={true}
+            javaScriptEnabled={true}
+            style={{ flex: 1 }}
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
