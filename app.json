@@ -8,7 +8,11 @@
     "scheme": "shopiators",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "bundleIdentifier": "com.yogeshkhasturi.shopiatorsmerchantapp",
+      "icon": "./assets/images/icon.png",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -36,7 +40,6 @@
           }
         }
       ],
-      "expo-image"
     ],
     "experiments": {
       "typedRoutes": true,

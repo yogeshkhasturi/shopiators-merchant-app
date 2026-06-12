@@ -20,42 +20,44 @@ import Animated, {
 } from 'react-native-reanimated';
 import {
   Home,
+  BarChart2,
   ShoppingBag,
   Tag,
   Users,
   Megaphone,
-  Percent,
-  Layers,
   Globe,
   Settings,
-  X,
   ChevronDown,
   ChevronUp,
-  QrCode,
+  Star,
+  Image as ImageIcon,
+  Percent,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSessionStore } from '../store/useSessionStore';
 
 const { width } = Dimensions.get('window');
 const DRAWER_WIDTH = width * 0.82;
 
 const HomeIcon = Home as any;
+const BarChart2Icon = BarChart2 as any;
 const ShoppingBagIcon = ShoppingBag as any;
 const TagIcon = Tag as any;
 const UsersIcon = Users as any;
 const MegaphoneIcon = Megaphone as any;
-const PercentIcon = Percent as any;
-const LayersIcon = Layers as any;
 const GlobeIcon = Globe as any;
 const SettingsIcon = Settings as any;
-const XIcon = X as any;
 const ChevronDownIcon = ChevronDown as any;
 const ChevronUpIcon = ChevronUp as any;
-const QrCodeIcon = QrCode as any;
+const StarIcon = Star as any;
+const ImageIconCast = ImageIcon as any;
+const PercentIcon = Percent as any;
 
 export default function MenuDrawer() {
   const insets = useSafeAreaInsets();
   const [isOpen, setIsOpen] = useState(false);
-  const [expandedSection, setExpandedSection] = useState<string | null>('products'); // Default products expanded
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const { merchantSlug, merchantMetadata } = useSessionStore();
 
   const translateX = useSharedValue(-DRAWER_WIDTH);
   const backdropOpacity = useSharedValue(0);
@@ -65,9 +67,9 @@ export default function MenuDrawer() {
       setIsOpen(true);
       translateX.value = withTiming(0, {
         duration: 320,
-        easing: Easing.bezier(0.16, 1, 0.3, 1), // Premium snappier ease-out curve
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
       });
-      backdropOpacity.value = withTiming(0.45, { duration: 280 });
+      backdropOpacity.value = withTiming(0.55, { duration: 280 });
     });
 
     const closeSub = DeviceEventEmitter.addListener('close-menu-drawer', () => {
@@ -85,62 +87,34 @@ export default function MenuDrawer() {
       duration: 280,
       easing: Easing.bezier(0.25, 1, 0.5, 1),
     }, (finished) => {
-      if (finished) {
-        runOnJS(setIsOpen)(false);
-      }
+      if (finished) runOnJS(setIsOpen)(false);
     });
     backdropOpacity.value = withTiming(0, { duration: 220 });
   };
 
   const getTabRouteForWebPath = (webPath: string): string | null => {
     const cleanPath = webPath.split('?')[0].split('#')[0];
-    if (cleanPath === '/admin/dashboard') {
-      return '/';
-    }
-    if (
-      cleanPath.startsWith('/admin/orders') ||
-      cleanPath.startsWith('/admin/draft_orders') ||
-      cleanPath.startsWith('/admin/checkouts')
-    ) {
-      return '/orders';
-    }
-    if (
-      cleanPath.startsWith('/admin/products') ||
-      cleanPath.startsWith('/admin/collections') ||
-      cleanPath.startsWith('/admin/inventory') ||
-      cleanPath.startsWith('/admin/purchase_orders') ||
-      cleanPath.startsWith('/admin/transfers') ||
-      cleanPath.startsWith('/admin/gift_cards')
-    ) {
-      return '/products';
-    }
-    if (cleanPath.startsWith('/admin/customers') || cleanPath.startsWith('/admin/segments')) {
-      return '/customers';
-    }
-    if (cleanPath.startsWith('/admin/settings')) {
-      return '/profile';
-    }
+    if (cleanPath === '/admin/dashboard') return '/';
+    if (cleanPath.startsWith('/admin/orders') || cleanPath.startsWith('/admin/draft_orders') || cleanPath.startsWith('/admin/checkouts')) return '/orders';
+    if (cleanPath.startsWith('/admin/products') || cleanPath.startsWith('/admin/collections') || cleanPath.startsWith('/admin/inventory') || cleanPath.startsWith('/admin/purchase_orders') || cleanPath.startsWith('/admin/transfers') || cleanPath.startsWith('/admin/gift_cards')) return '/products';
+    if (cleanPath.startsWith('/admin/customers') || cleanPath.startsWith('/admin/segments')) return '/customers';
+    if (cleanPath.startsWith('/admin/settings')) return '/profile';
     return null;
   };
 
   const handleNavigation = (webPath: string) => {
-    console.log('[MenuDrawer] Triggering navigation to:', webPath);
     const tabRoute = getTabRouteForWebPath(webPath);
-    
     if (tabRoute) {
-      console.log('[MenuDrawer] Switching to tab:', tabRoute);
       router.push(tabRoute as any);
-      setTimeout(() => {
-        DeviceEventEmitter.emit('navigate-web-path', webPath);
-      }, 150);
+      setTimeout(() => DeviceEventEmitter.emit('navigate-web-path', webPath), 150);
     } else {
-      console.log('[MenuDrawer] Opening in webview-screen:', webPath);
       let title = 'Admin';
       if (webPath.includes('discounts')) title = 'Discounts';
-      router.push({
-        pathname: '/webview-screen',
-        params: { path: webPath, title: title },
-      });
+      else if (webPath.includes('marketing')) title = 'Marketing';
+      else if (webPath.includes('media') || webPath.includes('files')) title = 'Media Library';
+      else if (webPath.includes('currencies')) title = 'Currency';
+      else if (webPath.includes('reviews')) title = 'Product Reviews';
+      router.push({ pathname: '/webview-screen', params: { path: webPath, title } });
     }
     handleClose();
   };
@@ -157,191 +131,129 @@ export default function MenuDrawer() {
     opacity: backdropOpacity.value,
   }));
 
+  const initials = (merchantMetadata?.userName || merchantSlug || 'AD').substring(0, 2).toUpperCase();
+
   return (
     <View style={[StyleSheet.absoluteFill, { pointerEvents: isOpen ? 'auto' : 'none' }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <StatusBar barStyle="light-content" backgroundColor="#0f1523" />
+
       {/* Backdrop */}
       <TouchableWithoutFeedback onPress={handleClose}>
         <Animated.View style={[styles.backdrop, backdropStyle]} />
       </TouchableWithoutFeedback>
 
-      {/* Drawer Content */}
-      <Animated.View style={[styles.drawer, drawerStyle, { paddingTop: insets.top, paddingBottom: insets.bottom + 16 }]}>
+      {/* Drawer */}
+      <Animated.View style={[styles.drawer, drawerStyle, { paddingTop: insets.top }]}>
+
+        {/* Header — Logo */}
+        <View style={styles.drawerHeader}>
+          <View style={styles.logoRow}>
+            <View style={styles.logoIcon}>
+              <Text style={styles.logoIconText}>S</Text>
+            </View>
+            <Text style={styles.logoText}>Shopiators</Text>
+          </View>
+        </View>
+
+        {/* Navigation Links */}
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          
-          {/* Menu Items */}
+
+          {/* MAIN */}
+          <Text style={styles.sectionLabel}>MAIN</Text>
+
           <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/dashboard')}>
-            <HomeIcon size={22} color="#5c5f62" />
+            <HomeIcon size={20} color="rgba(255,255,255,0.65)" />
             <Text style={styles.menuText}>Home</Text>
           </TouchableOpacity>
 
-          {/* Orders Section */}
-          <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => toggleSection('orders')}>
-            <ShoppingBagIcon size={22} color="#5c5f62" />
-            <Text style={styles.menuText}>Orders</Text>
-            {expandedSection === 'orders' ? (
-              <ChevronUpIcon size={18} color="#5c5f62" />
-            ) : (
-              <ChevronDownIcon size={18} color="#5c5f62" />
-            )}
+          <TouchableOpacity style={[styles.menuRow, styles.activeMenuRow]} activeOpacity={0.7} onPress={() => handleNavigation('/admin/dashboard')}>
+            <BarChart2Icon size={20} color="#60a5fa" />
+            <Text style={[styles.menuText, styles.activeMenuText]}>Dashboard</Text>
           </TouchableOpacity>
-          {expandedSection === 'orders' && (
+
+          {/* COMMERCE */}
+          <Text style={styles.sectionLabel}>COMMERCE</Text>
+
+          <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => toggleSection('sales')}>
+            <ShoppingBagIcon size={20} color="rgba(255,255,255,0.65)" />
+            <Text style={styles.menuText}>Sales</Text>
+            {expandedSection === 'sales' ? <ChevronUpIcon size={16} color="rgba(255,255,255,0.4)" /> : <ChevronDownIcon size={16} color="rgba(255,255,255,0.4)" />}
+          </TouchableOpacity>
+          {expandedSection === 'sales' && (
             <View style={styles.subMenu}>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/orders')}>
-                <Text style={styles.subMenuText}>All Orders</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/draft_orders')}>
-                <Text style={styles.subMenuText}>Drafts</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/checkouts')}>
-                <Text style={styles.subMenuText}>Abandoned checkouts</Text>
-              </TouchableOpacity>
+              <TouchableOpacity style={styles.subMenuRow} onPress={() => handleNavigation('/admin/orders')}><View style={styles.dot} /><Text style={styles.subMenuText}>All Orders</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.subMenuRow} onPress={() => handleNavigation('/admin/draft_orders')}><View style={styles.dot} /><Text style={styles.subMenuText}>Drafts</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.subMenuRow} onPress={() => handleNavigation('/admin/checkouts')}><View style={styles.dot} /><Text style={styles.subMenuText}>Abandoned checkouts</Text></TouchableOpacity>
             </View>
           )}
 
-          {/* Products Section */}
-          <TouchableOpacity
-            style={[styles.menuRow, expandedSection === 'products' && styles.activeMenuRow]}
-            activeOpacity={0.7}
-            onPress={() => toggleSection('products')}
-          >
-            <TagIcon size={22} color={expandedSection === 'products' ? '#008060' : '#5c5f62'} />
-            <Text style={[styles.menuText, expandedSection === 'products' && styles.activeMenuText]}>Products</Text>
-            {expandedSection === 'products' ? (
-              <ChevronUpIcon size={18} color="#008060" />
-            ) : (
-              <ChevronDownIcon size={18} color="#5c5f62" />
-            )}
+          <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => toggleSection('products')}>
+            <TagIcon size={20} color="rgba(255,255,255,0.65)" />
+            <Text style={styles.menuText}>Products</Text>
+            {expandedSection === 'products' ? <ChevronUpIcon size={16} color="rgba(255,255,255,0.4)" /> : <ChevronDownIcon size={16} color="rgba(255,255,255,0.4)" />}
           </TouchableOpacity>
           {expandedSection === 'products' && (
             <View style={styles.subMenu}>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/products')}>
-                <Text style={styles.subMenuText}>All products</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/collections')}>
-                <Text style={styles.subMenuText}>Collections</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/inventory')}>
-                <Text style={styles.subMenuText}>Inventory</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/purchase_orders')}>
-                <Text style={styles.subMenuText}>Purchase orders</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/transfers')}>
-                <Text style={styles.subMenuText}>Transfers</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/gift_cards')}>
-                <Text style={styles.subMenuText}>Gift cards</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.subMenuRow, styles.scanInventoryRow]} activeOpacity={0.7} onPress={() => handleNavigation('/admin/products/scan')}>
-                <QrCodeIcon size={16} color="#5c5f62" style={{ marginRight: 8 }} />
-                <Text style={styles.subMenuText}>Scan inventory</Text>
-              </TouchableOpacity>
+              <TouchableOpacity style={styles.subMenuRow} onPress={() => handleNavigation('/admin/products')}><View style={styles.dot} /><Text style={styles.subMenuText}>All products</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.subMenuRow} onPress={() => handleNavigation('/admin/collections')}><View style={styles.dot} /><Text style={styles.subMenuText}>Collections</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.subMenuRow} onPress={() => handleNavigation('/admin/inventory')}><View style={styles.dot} /><Text style={styles.subMenuText}>Inventory</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.subMenuRow} onPress={() => handleNavigation('/admin/purchase_orders')}><View style={styles.dot} /><Text style={styles.subMenuText}>Purchase orders</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.subMenuRow} onPress={() => handleNavigation('/admin/gift_cards')}><View style={styles.dot} /><Text style={styles.subMenuText}>Gift cards</Text></TouchableOpacity>
             </View>
           )}
 
-          {/* Customers */}
-          <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => toggleSection('customers')}>
-            <UsersIcon size={22} color="#5c5f62" />
-            <Text style={styles.menuText}>Customers</Text>
-            {expandedSection === 'customers' ? (
-              <ChevronUpIcon size={18} color="#5c5f62" />
-            ) : (
-              <ChevronDownIcon size={18} color="#5c5f62" />
-            )}
+          <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/settings/currencies')}>
+            <GlobeIcon size={20} color="rgba(255,255,255,0.65)" />
+            <Text style={styles.menuText}>Currency</Text>
           </TouchableOpacity>
-          {expandedSection === 'customers' && (
-            <View style={styles.subMenu}>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/customers')}>
-                <Text style={styles.subMenuText}>All customers</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/segments')}>
-                <Text style={styles.subMenuText}>Segments</Text>
-              </TouchableOpacity>
-            </View>
-          )}
 
-          {/* Marketing */}
+          <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/product-reviews')}>
+            <StarIcon size={20} color="rgba(255,255,255,0.65)" />
+            <Text style={styles.menuText}>Product Reviews</Text>
+          </TouchableOpacity>
+
+          {/* MARKETING */}
+          <Text style={styles.sectionLabel}>MARKETING</Text>
+
           <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => toggleSection('marketing')}>
-            <MegaphoneIcon size={22} color="#5c5f62" />
+            <MegaphoneIcon size={20} color="rgba(255,255,255,0.65)" />
             <Text style={styles.menuText}>Marketing</Text>
-            {expandedSection === 'marketing' ? (
-              <ChevronUpIcon size={18} color="#5c5f62" />
-            ) : (
-              <ChevronDownIcon size={18} color="#5c5f62" />
-            )}
+            {expandedSection === 'marketing' ? <ChevronUpIcon size={16} color="rgba(255,255,255,0.4)" /> : <ChevronDownIcon size={16} color="rgba(255,255,255,0.4)" />}
           </TouchableOpacity>
           {expandedSection === 'marketing' && (
             <View style={styles.subMenu}>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/marketing')}>
-                <Text style={styles.subMenuText}>Overview</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/marketing/campaigns')}>
-                <Text style={styles.subMenuText}>Campaigns</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/marketing/automations')}>
-                <Text style={styles.subMenuText}>Automations</Text>
-              </TouchableOpacity>
+              <TouchableOpacity style={styles.subMenuRow} onPress={() => handleNavigation('/admin/marketing')}><View style={styles.dot} /><Text style={styles.subMenuText}>Overview</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.subMenuRow} onPress={() => handleNavigation('/admin/discounts')}><View style={styles.dot} /><Text style={styles.subMenuText}>Discounts</Text></TouchableOpacity>
             </View>
           )}
 
-          {/* Discounts */}
-          <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/discounts')}>
-            <PercentIcon size={22} color="#5c5f62" />
-            <Text style={styles.menuText}>Discounts</Text>
+          {/* STORE */}
+          <Text style={styles.sectionLabel}>STORE</Text>
+
+          <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/settings/general')}>
+            <PercentIcon size={20} color="rgba(255,255,255,0.65)" />
+            <Text style={styles.menuText}>Store Management</Text>
           </TouchableOpacity>
 
-          {/* Content */}
-          <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => toggleSection('content')}>
-            <LayersIcon size={22} color="#5c5f62" />
-            <Text style={styles.menuText}>Content</Text>
-            {expandedSection === 'content' ? (
-              <ChevronUpIcon size={18} color="#5c5f62" />
-            ) : (
-              <ChevronDownIcon size={18} color="#5c5f62" />
-            )}
+          <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/content/files')}>
+            <ImageIconCast size={20} color="rgba(255,255,255,0.65)" />
+            <Text style={styles.menuText}>Media Library</Text>
           </TouchableOpacity>
-          {expandedSection === 'content' && (
-            <View style={styles.subMenu}>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/content/metaobjects')}>
-                <Text style={styles.subMenuText}>Metaobjects</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/content/files')}>
-                <Text style={styles.subMenuText}>Files</Text>
-              </TouchableOpacity>
-            </View>
-          )}
 
-          {/* Markets */}
-          <TouchableOpacity style={styles.menuRow} activeOpacity={0.7} onPress={() => toggleSection('markets')}>
-            <GlobeIcon size={22} color="#5c5f62" />
-            <Text style={styles.menuText}>Markets</Text>
-            {expandedSection === 'markets' ? (
-              <ChevronUpIcon size={18} color="#5c5f62" />
-            ) : (
-              <ChevronDownIcon size={18} color="#5c5f62" />
-            )}
-          </TouchableOpacity>
-          {expandedSection === 'markets' && (
-            <View style={styles.subMenu}>
-              <TouchableOpacity style={styles.subMenuRow} activeOpacity={0.7} onPress={() => handleNavigation('/admin/markets')}>
-                <Text style={styles.subMenuText}>Markets</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </ScrollView>
 
-        {/* Bottom Floating Control Buttons */}
-        <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.settingsBtn} activeOpacity={0.8} onPress={() => handleNavigation('/admin/settings/general')}>
-            <SettingsIcon size={18} color="#1a1a1a" style={{ marginRight: 8 }} />
-            <Text style={styles.settingsText}>Settings</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.closeBtn} activeOpacity={0.8} onPress={handleClose}>
-            <XIcon size={20} color="#1a1a1a" />
-          </TouchableOpacity>
-        </View>
+        {/* Footer — Administrator */}
+        <TouchableOpacity
+          style={[styles.adminFooter, { marginBottom: insets.bottom + 12 }]}
+          activeOpacity={0.8}
+          onPress={() => handleNavigation('/admin/settings/general')}
+        >
+          <View style={styles.adminAvatar}>
+            <Text style={styles.adminAvatarText}>{initials}</Text>
+          </View>
+          <Text style={styles.adminName}>Administrator</Text>
+          <SettingsIcon size={15} color="rgba(255,255,255,0.4)" style={{ marginLeft: 'auto' }} />
+        </TouchableOpacity>
 
       </Animated.View>
     </View>
@@ -359,89 +271,126 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: DRAWER_WIDTH,
-    backgroundColor: '#ffffff', // White drawer body background
-    borderRightWidth: 1,
-    borderRightColor: 'rgba(0, 0, 0, 0.05)',
-    justifyContent: 'space-between',
+    backgroundColor: '#0f1523',
+  },
+  drawerHeader: {
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  logoIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#3b82f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoIconText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  logoText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
   scroll: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
+  sectionLabel: {
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+    paddingHorizontal: 12,
+    paddingTop: 18,
+    paddingBottom: 4,
   },
   menuRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
+    paddingVertical: 11,
     paddingHorizontal: 12,
-    borderRadius: 14,
-    marginBottom: 4,
+    borderRadius: 10,
+    marginBottom: 1,
+    gap: 12,
   },
   activeMenuRow: {
-    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+    backgroundColor: 'rgba(59,130,246,0.14)',
   },
   menuText: {
     flex: 1,
-    color: '#1a1a1a', // Dark menu label color
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 14,
-  },
-  activeMenuText: {
-    color: '#000000',
-  },
-  subMenu: {
-    paddingLeft: 46,
-    marginBottom: 8,
-  },
-  subMenuRow: {
-    paddingVertical: 10,
-  },
-  scanInventoryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  subMenuText: {
-    color: '#5c5f62', // Cool gray sub-menu label color
-    fontSize: 14,
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 15,
     fontWeight: '500',
   },
-  bottomBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.05)',
-    gap: 12,
-  },
-  settingsBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#f6f6f7',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
-  },
-  settingsText: {
-    color: '#1a1a1a',
-    fontSize: 14,
+  activeMenuText: {
+    color: '#ffffff',
     fontWeight: '600',
   },
-  closeBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#f6f6f7',
+  subMenu: {
+    paddingLeft: 44,
+    paddingBottom: 4,
+  },
+  subMenuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 9,
+    gap: 10,
+  },
+  dot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  subMenuText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 14,
+    fontWeight: '400',
+  },
+  adminFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 12,
+    marginTop: 8,
+    padding: 14,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+    gap: 12,
+  },
+  adminAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#7c3aed',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  adminAvatarText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  adminName: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

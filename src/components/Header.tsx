@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, DeviceEventEmitter, StatusBar, Platform } from 'react-native';
-import { Bell, Plus, MoreVertical, ChevronDown, Search, Settings, ArrowLeft } from 'lucide-react-native';
+import { Bell, Plus, MoreVertical, ChevronDown, Search, Settings, ArrowLeft, Menu } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSessionStore } from '../store/useSessionStore';
 import { decodeSessionToken } from '../utils/jwt';
@@ -13,6 +13,7 @@ const ChevronDownIcon = ChevronDown as any;
 const SearchIcon = Search as any;
 const SettingsIcon = Settings as any;
 const ArrowLeftIcon = ArrowLeft as any;
+const MenuIcon = Menu as any;
 
 interface HeaderProps {
   title?: string;
@@ -109,11 +110,19 @@ export default function Header({
     <View style={[styles.headerContainer, { paddingTop: topPadding }]}>
       <View style={styles.headerContent}>
         
-        {/* Left Side: Back button or Main brand/title */}
+        {/* Left Side: Back button or Hamburger + Main brand/title */}
         <View style={styles.leftContainer}>
-          {showBack && (
+          {showBack ? (
             <TouchableOpacity style={styles.backButton} onPress={onBackPress || (() => router.back())}>
               <ArrowLeftIcon size={22} color="#1a1a1a" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity 
+              style={styles.backButton} 
+              onPress={() => DeviceEventEmitter.emit('open-menu-drawer')}
+              activeOpacity={0.7}
+            >
+              <MenuIcon size={22} color="#1a1a1a" />
             </TouchableOpacity>
           )}
 
@@ -128,53 +137,41 @@ export default function Header({
               <ChevronDownIcon size={16} color="#5c5f62" style={{ marginLeft: 4 }} />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity 
-              style={styles.pageTitleWrapper} 
-              activeOpacity={variant === 'products' || variant === 'orders' ? 0.7 : 1}
-              disabled={variant !== 'products' && variant !== 'orders'}
-              onPress={() => {
-                if (variant === 'products' || variant === 'orders') {
-                  DeviceEventEmitter.emit('open-menu-drawer');
-                }
-              }}
-            >
+            <View style={styles.pageTitleWrapper}>
               <Text style={styles.pageTitleText}>{title}</Text>
-              {(variant === 'products' || variant === 'orders') && (
-                <ChevronDownIcon size={18} color="#5c5f62" style={{ marginLeft: 6 }} />
-              )}
-            </TouchableOpacity>
+            </View>
           )}
         </View>
 
         {/* Right Side Actions based on Page Variant */}
         <View style={styles.actionGroup}>
-          {variant === 'home' && (
-            <>
-              {/* Notification Bell */}
-              <TouchableOpacity 
-                style={styles.actionButton} 
-                activeOpacity={0.7} 
-                onPress={handleNotificationPress}
-              >
-                <BellIcon size={20} color="#5c5f62" />
-                {notificationCount > 0 && (
-                  <View style={styles.badgeIndicator}>
-                    <Text style={styles.badgeText}>{notificationCount}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-
-              {/* Profile Initials Avatar Pill */}
-              <TouchableOpacity 
-                style={styles.avatarButton} 
-                activeOpacity={0.7} 
-                onPress={handleProfilePress}
-              >
-                <View style={styles.avatarInner}>
-                  <Text style={styles.avatarText}>{userDetails.initials}</Text>
+          {/* Global Notification Bell across main screens */}
+          {!showBack && variant !== 'search' && (
+            <TouchableOpacity 
+              style={styles.actionButton} 
+              activeOpacity={0.7} 
+              onPress={handleNotificationPress}
+            >
+              <BellIcon size={20} color="#5c5f62" />
+              {notificationCount > 0 && (
+                <View style={styles.badgeIndicator}>
+                  <Text style={styles.badgeText}>{notificationCount}</Text>
                 </View>
-              </TouchableOpacity>
-            </>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {variant === 'home' && (
+            /* Profile Initials Avatar Pill */
+            <TouchableOpacity 
+              style={styles.avatarButton} 
+              activeOpacity={0.7} 
+              onPress={handleProfilePress}
+            >
+              <View style={styles.avatarInner}>
+                <Text style={styles.avatarText}>{userDetails.initials}</Text>
+              </View>
+            </TouchableOpacity>
           )}
 
           {(variant === 'products' || variant === 'customers') && (
